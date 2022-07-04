@@ -3,11 +3,9 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import warnings
-from logging import getLogger
 from typing import Coroutine, Generic, TypeVar
 
 
-logger = getLogger(__package__)
 T = TypeVar('T')
 G = TypeVar('G')
 C = Coroutine[object, object, T]
@@ -70,23 +68,3 @@ class Tasks(Generic[T]):
     def __del__(self) -> None:
         if not self._awaited:
             warnings.warn("Tasks.run was never called")
-
-
-async def make_safe(coro: C[T]) -> T | None:
-    try:
-        return await coro
-    except Exception:
-        logger.exception("suppressed exception")
-    return None
-
-
-async def chain(*coros: C[None]) -> None:
-    for coro in coros:
-        await coro
-
-
-async def finalize(first: C[None], second: C[T]) -> T:
-    first_task = asyncio.create_task(first)
-    while not first_task.done():
-        await asyncio.sleep(0)
-    return await second
