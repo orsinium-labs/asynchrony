@@ -6,7 +6,7 @@ from functools import cached_property
 import math
 import time
 import warnings
-from typing import AsyncIterator, Coroutine, Generator, Generic, TypeVar
+from typing import AsyncIterator, Callable, Coroutine, Generator, Generic, Iterable, TypeVar
 
 
 T = TypeVar('T', covariant=True)
@@ -20,7 +20,19 @@ class Tasks(Generic[T]):
 
     _started: list[asyncio.Task[T]] = dataclasses.field(default_factory=list)
     _deferred: list[C[None]] = dataclasses.field(default_factory=list)
-    _awaited: bool = False  # indicates if Tasks were awaited to finish.
+    _awaited: bool = False
+
+    @classmethod
+    def map(
+        cls,
+        f: Callable[[G], C[T]],
+        items: Iterable[G],
+        timeout: float = None,
+    ) -> Tasks[T]:
+        tasks = cls(timeout=timeout)
+        for item in items:
+            tasks.start(f(item))
+        return tasks
 
     @property
     def all_done(self) -> bool:
@@ -31,12 +43,20 @@ class Tasks(Generic[T]):
         return any(task.done() for task in self._started)
 
     @property
+    def done_count(self) -> int:
+        return sum(task.done() for task in self._started)
+
+    @property
     def all_cancelled(self) -> bool:
         return all(task.cancelled() for task in self._started)
 
     @property
     def any_cancelled(self) -> bool:
         return any(task.cancelled() for task in self._started)
+
+    @property
+    def cancelled_count(self) -> int:
+        return sum(task.cancelled() for task in self._started)
 
     @cached_property
     def results(self) -> list[T]:
@@ -47,10 +67,10 @@ class Tasks(Generic[T]):
     def available_results(self) -> list[T]:
         return [task.result() for task in self._started if task.done()]
 
-    def start(self, coro: C[T]) -> None:
-        """Immediately start coroutine.
+    def start(self, coro: C[T], name: str | None = None) -> None:
+        """Immediately schedule the coroutine.
         """
-        task = asyncio.create_task(coro)
+        task = asyncio.create_task(coro, name=name)
         self._started.append(task)
 
     def defer(self, coro: C[None]) -> None:
@@ -87,6 +107,12 @@ class Tasks(Generic[T]):
             _started=self._started.copy(),
             _deferred=self._deferred.copy(),
         )
+
+    async def wait(self) -> None:
+        """Wait for all started and deferred coroutines to finish.
+        """
+        async for _ in self.get_channel():
+            pass
 
     async def get_list(self) -> list[T]:
         """Wait for all started and deferred coroutines to finish.
@@ -131,7 +157,7 @@ class Tasks(Generic[T]):
     async def __aenter__(self: G) -> G:
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:
+    async def __aexit__(self, exc_type: Exception | None, exc, tb) -> None:
         if exc_type is None:
             await self.get_list()
         else:

@@ -28,8 +28,10 @@ async def test_basic_start_and_list() -> None:
 
     assert tasks.any_done
     assert tasks.all_done
+    assert tasks.done_count == 2
     assert not tasks.any_cancelled
     assert not tasks.all_cancelled
+    assert tasks.cancelled_count == 0
 
 
 @pytest.mark.asyncio
@@ -38,6 +40,15 @@ async def test_await() -> None:
     tasks.start(double(3))
     results = await tasks
     assert results == [6]
+
+
+@pytest.mark.asyncio
+async def test_wait() -> None:
+    tasks = Tasks[int](timeout=5)
+    tasks.start(double(3))
+    await tasks.wait()
+    assert tasks.results == [6]
+    assert tasks.available_results == [6]
 
 
 @pytest.mark.asyncio
@@ -83,17 +94,22 @@ async def test_copy() -> None:
 async def test_cancel_all() -> None:
     tasks = Tasks[int](timeout=5)
     tasks.start(double(4))
+    tasks.start(double(5))
 
     assert not tasks.any_cancelled
     assert not tasks.any_done
+    assert tasks.cancelled_count == 0
+    assert tasks.done_count == 0
 
     await tasks.cancel_all()
     await tasks.wait_all_cancelled()
 
     assert tasks.any_cancelled
     assert tasks.all_cancelled
+    assert tasks.cancelled_count == 2
     assert tasks.any_done
     assert tasks.all_done
+    assert tasks.done_count == 2
 
 
 @pytest.mark.asyncio
