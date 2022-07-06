@@ -1,9 +1,14 @@
+import asyncio
 from dataclasses import dataclass
+from random import randint
 import pytest
 from asynchrony import Tasks
 
 
 async def double(x: int) -> int:
+    for _ in range(4):
+        if randint(0, 1):
+            await asyncio.sleep(0)
     return x * 2
 
 
@@ -76,6 +81,14 @@ async def test_context_manager() -> None:
 
 
 @pytest.mark.asyncio
+async def test_map() -> None:
+    tasks = Tasks[int](timeout=5)
+    tasks.map([3, 4, 5], double)
+    results = await tasks
+    assert results == [6, 8, 10]
+
+
+@pytest.mark.asyncio
 async def test_copy() -> None:
     tasks1 = Tasks[int](timeout=5)
     tasks1.start(double(3))
@@ -89,6 +102,46 @@ async def test_copy() -> None:
 
     assert results1 == [6, 8]
     assert results2 == [6, 10]
+
+
+@pytest.mark.asyncio
+async def test_merge() -> None:
+    tasks1 = Tasks[int](timeout=5)
+    tasks1.start(double(3))
+
+    tasks2 = Tasks[int](timeout=5)
+    tasks2.start(double(4))
+
+    tasks3 = tasks1.merge(tasks2)
+    tasks3.start(double(5))
+
+    results1 = await tasks1
+    results2 = await tasks2
+    results3 = await tasks3
+
+    assert results1 == [6]
+    assert results2 == [8]
+    assert results3 == [6, 8, 10]
+
+
+@pytest.mark.asyncio
+async def test_plus() -> None:
+    tasks1 = Tasks[int](timeout=5)
+    tasks1.start(double(3))
+
+    tasks2 = Tasks[int](timeout=5)
+    tasks2.start(double(4))
+
+    tasks3 = tasks1 + tasks2
+    tasks3.start(double(5))
+
+    results1 = await tasks1
+    results2 = await tasks2
+    results3 = await tasks3
+
+    assert results1 == [6]
+    assert results2 == [8]
+    assert results3 == [6, 8, 10]
 
 
 @pytest.mark.asyncio

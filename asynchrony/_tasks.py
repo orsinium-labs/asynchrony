@@ -31,20 +31,6 @@ class Tasks(Generic[T]):
     _deferred: list[C[None]] = dataclasses.field(default_factory=list)
     _awaited: bool = False
 
-    @classmethod
-    def map(
-        cls,
-        f: Callable[[G], C[T]],
-        items: Iterable[G],
-        timeout: float = None,
-    ) -> Tasks[T]:
-        """Create `Tasks` that applies `f` to each item from `items`.
-        """
-        tasks = cls(timeout=timeout)
-        for item in items:
-            tasks.start(f(item))
-        return tasks
-
     @property
     def all_done(self) -> bool:
         """True if all the wrapped tasks are done.
@@ -102,6 +88,11 @@ class Tasks(Generic[T]):
         """
         return [task.result() for task in self._started if task.done()]
 
+    def map(self, items: Iterable[G], f: Callable[[G], C[T]]) -> None:
+        """Start `f` for each item from `items`.
+        """
+        self._started.extend(asyncio.create_task(f(item)) for item in items)
+
     def start(self, coro: C[T], name: str | None = None) -> None:
         """Schedule the coroutine.
 
@@ -112,7 +103,7 @@ class Tasks(Generic[T]):
         self._started.append(task)
 
     def defer(self, coro: C[None]) -> None:
-        """Exeecute the coroutine after all tasks are finished (or any failed).
+        """Execute the coroutine after all tasks are finished (or any failed).
 
         Use it to close resources needed for the tasks.
         See also: `contextlib.AsyncExitStack`.
@@ -218,7 +209,7 @@ class Tasks(Generic[T]):
 
         Tasks as a context manager:
         1. Awaits for all wrapped tasks when leaving the context.
-        2. ALways runs deferred functions, including when the context fails.
+        2. Always runs deferred functions, even if the context fails.
         """
         return self
 
@@ -232,3 +223,6 @@ class Tasks(Generic[T]):
         coro = self.get_list()
         result = yield from asyncio.ensure_future(coro)
         return result
+
+    def __add__(self, other: Tasks[G]) -> Tasks[T | G]:
+        return self.merge(other)
