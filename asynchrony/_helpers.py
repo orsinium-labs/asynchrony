@@ -10,12 +10,12 @@ T = TypeVar('T')
 C = Coroutine[object, object, T]
 
 
-async def make_safe(coro: C[T]) -> T | None:
+async def make_safe(coro: C[T], *, default: T | None = None) -> T | None:
     try:
         return await coro
     except Exception:
         logger.exception("suppressed exception")
-    return None
+    return default
 
 
 async def chain(*coros: C[None]) -> None:
