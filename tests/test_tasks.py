@@ -12,6 +12,15 @@ async def double(x: int) -> int:
     return x * 2
 
 
+async def fail() -> int:
+    raise ZeroDivisionError
+
+
+async def freeze() -> int:
+    await asyncio.sleep(10)
+    raise AssertionError
+
+
 @dataclass
 class Mock:
     calls: int = 0
@@ -205,3 +214,19 @@ async def test_defer_twice() -> None:
     tasks.defer(mock.entry())
     await tasks
     assert mock.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_cancel_on_failure() -> None:
+    tasks = Tasks[int](timeout=5, cancel_on_failure=True)
+    tasks.start(fail())
+    tasks.start(freeze())
+    tasks.start(freeze())
+    tasks.start(freeze())
+    with pytest.raises(ZeroDivisionError):
+        await tasks
+    while not tasks.all_done:
+        asyncio.sleep(0)
+    assert tasks.any_cancelled
+    assert tasks.done_count == 4
+    assert tasks.cancelled_count == 3

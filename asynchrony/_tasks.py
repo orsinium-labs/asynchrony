@@ -17,6 +17,11 @@ C = Coroutine[object, object, T]
 class Tasks(Generic[T]):
     """Manager for async tasks.
 
+    Args:
+
+        timeout: how long to await for tasks to finish.
+        cancel_on_failure: if a task fails, cancel all other tasks.
+
     Example::
 
         tasks = Tasks(timeout=5)
@@ -26,6 +31,7 @@ class Tasks(Generic[T]):
 
     """
     timeout: float | None = None
+    cancel_on_failure: bool = False
 
     _started: list[asyncio.Task[T]] = dataclasses.field(default_factory=list)
     _deferred: list[C[None]] = dataclasses.field(default_factory=list)
@@ -156,6 +162,8 @@ class Tasks(Generic[T]):
 
     async def wait(self) -> None:
         """Wait for all started and deferred tasks to finish.
+
+        If a task raised an exception, `wait` wil re-raise it.
         """
         async for _ in self.get_channel():
             pass
@@ -167,6 +175,9 @@ class Tasks(Generic[T]):
         """
         try:
             results = await self._list()
+        except Exception:
+            self._handle_failure()
+            raise
         finally:
             await self._run_deferred()
             self._awaited = True
@@ -181,6 +192,9 @@ class Tasks(Generic[T]):
             futures = asyncio.as_completed(self._started, timeout=self.timeout)
             for future in futures:
                 yield await future
+        except Exception:
+            self._handle_failure()
+            raise
         finally:
             await self._run_deferred()
             self._awaited = True
@@ -199,6 +213,12 @@ class Tasks(Generic[T]):
         future = asyncio.gather(*self._deferred)
         await asyncio.wait_for(future, timeout=self.timeout)
         self._deferred = []
+
+    def _handle_failure(self) -> None:
+        if not self.cancel_on_failure:
+            return
+        for task in self._started:
+            task.cancel()
 
     def __del__(self) -> None:
         if not self._awaited:
