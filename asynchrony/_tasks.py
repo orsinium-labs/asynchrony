@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+from functools import cached_property
 import math
 import time
 import warnings
@@ -37,8 +38,9 @@ class Tasks(Generic[T]):
     def any_cancelled(self) -> bool:
         return any(task.cancelled() for task in self._started)
 
-    @property
+    @cached_property
     def results(self) -> list[T]:
+        assert self._awaited, 'the tasks should be awaited before you can get results'
         return [task.result() for task in self._started]
 
     @property
@@ -86,65 +88,56 @@ class Tasks(Generic[T]):
             _deferred=self._deferred.copy(),
         )
 
-    async def wait(self) -> list[T]:
+    async def get_list(self) -> list[T]:
         """Wait for all started and deferred coroutines to finish.
         """
         try:
-            results = await self._wait()
+            results = await self._list()
         finally:
             await self._run_deferred()
+            self._awaited = True
         return results
 
-    async def wait_unordered(self, pause: float = 0) -> AsyncIterator[T]:
+    async def get_channel(self) -> AsyncIterator[T]:
         """Wait for all started and deferred coroutines to finish.
         """
         try:
-            async for result in self._wait_unordered(pause=pause):
-                yield result
+            futures = asyncio.as_completed(self._started, timeout=self.timeout)
+            for future in futures:
+                yield await future
         finally:
             await self._run_deferred()
+            self._awaited = True
 
-    async def _wait(self) -> list[T]:
-        self._awaited = True
+    async def _list(self) -> list[T]:
         if not self._started:
             return []
         future = asyncio.gather(*self._started)
         results = await asyncio.wait_for(future, timeout=self.timeout)
         return results
 
-    async def _wait_unordered(self, pause: float) -> AsyncIterator[T]:
-        self._awaited = True
-        pending = self._started
-        while pending:
-            new_pending = []
-            for task in pending:
-                if task.done():
-                    yield task.result()
-                else:
-                    new_pending.append(task)
-            pending = new_pending
-            if pending:
-                await asyncio.sleep(pause)
-
     async def _run_deferred(self) -> None:
+        self._awaited = True
+        if not self._deferred:
+            return
         future = asyncio.gather(*self._deferred)
         await asyncio.wait_for(future, timeout=self.timeout)
+        self._deferred = []
 
     def __del__(self) -> None:
         if not self._awaited:
-            cls = type(self)
-            warnings.warn(f'{cls.__name__}.wait was never called')
+            warnings.warn('Tasks instance was never awaited')
 
     async def __aenter__(self: G) -> G:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         if exc_type is None:
-            await self.wait()
+            await self.get_list()
         else:
             await self._run_deferred()
 
     def __await__(self) -> Generator[object, object, list[T]]:
-        coro = self.wait()
+        coro = self.get_list()
         result = yield from asyncio.ensure_future(coro)
         return result

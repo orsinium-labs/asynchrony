@@ -16,11 +16,11 @@ class Mock:
 
 
 @pytest.mark.asyncio
-async def test_basic_start_and_wait() -> None:
+async def test_basic_start_and_list() -> None:
     tasks = Tasks[int](timeout=5)
     tasks.start(double(3))
     tasks.start(double(7))
-    results = await tasks.wait()
+    results = await tasks.get_list()
     assert results == [6, 14]
 
     assert results == tasks.results
@@ -41,18 +41,18 @@ async def test_await() -> None:
 
 
 @pytest.mark.asyncio
-async def test_wait_twice() -> None:
+async def test_list_twice() -> None:
     tasks = Tasks[int](timeout=5)
     tasks.start(double(3))
-    results1 = await tasks.wait()
-    results2 = await tasks.wait()
+    results1 = await tasks.get_list()
+    results2 = await tasks.get_list()
     assert results1 == results2
 
 
 @pytest.mark.asyncio
-async def test_wait_empty() -> None:
+async def test_list_empty() -> None:
     tasks = Tasks[int](timeout=5)
-    results = await tasks.wait()
+    results = await tasks.get_list()
     assert results == []
 
 
@@ -97,13 +97,13 @@ async def test_cancel_all() -> None:
 
 
 @pytest.mark.asyncio
-async def test_wait_unordered() -> None:
+async def test_get_channel() -> None:
     tasks = Tasks[int](timeout=5)
     tasks.start(double(4))
     tasks.start(double(6))
 
     results = set()
-    async for result in tasks.wait_unordered():
+    async for result in tasks.get_channel():
         results.add(result)
     assert results == {8, 12}
 
@@ -115,3 +115,23 @@ async def test_defer() -> None:
     tasks.defer(mock.entry())
     await tasks
     assert mock.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_defer_await_twice() -> None:
+    tasks = Tasks[int](timeout=5)
+    mock = Mock()
+    tasks.defer(mock.entry())
+    await tasks
+    await tasks
+    assert mock.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_defer_twice() -> None:
+    tasks = Tasks[int](timeout=5)
+    mock = Mock()
+    tasks.defer(mock.entry())
+    tasks.defer(mock.entry())
+    await tasks
+    assert mock.calls == 2
