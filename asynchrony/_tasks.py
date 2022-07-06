@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 from functools import cached_property
-import math
 import time
 import warnings
 from typing import AsyncIterator, Callable, Coroutine, Generator, Generic, Iterable, TypeVar
@@ -16,6 +15,16 @@ C = Coroutine[object, object, T]
 
 @dataclasses.dataclass
 class Tasks(Generic[T]):
+    """Manager for async tasks.
+
+    Example::
+
+        tasks = Tasks(timeout=5)
+        for name in names:
+            tasks.start(get_user(name))
+        users = await tasks
+
+    """
     timeout: float | None = None
 
     _started: list[asyncio.Task[T]] = dataclasses.field(default_factory=list)
@@ -29,6 +38,8 @@ class Tasks(Generic[T]):
         items: Iterable[G],
         timeout: float = None,
     ) -> Tasks[T]:
+        """Create `Tasks` that applies `f` to each item from `items`.
+        """
         tasks = cls(timeout=timeout)
         for item in items:
             tasks.start(f(item))
@@ -36,63 +47,105 @@ class Tasks(Generic[T]):
 
     @property
     def all_done(self) -> bool:
+        """True if all the wrapped tasks are done.
+
+        "Done" also includes failed and cancelled tasks.
+        """
         return all(task.done() for task in self._started)
 
     @property
     def any_done(self) -> bool:
+        """True if any of the wrapped tasks is done.
+
+        "Done" also includes failed and cancelled tasks.
+        """
         return any(task.done() for task in self._started)
 
     @property
     def done_count(self) -> int:
+        """How many tasks are done.
+
+        "Done" also includes failed and cancelled tasks.
+        """
         return sum(task.done() for task in self._started)
 
     @property
     def all_cancelled(self) -> bool:
+        """True if all the wrapped tasks are cancelled.
+        """
         return all(task.cancelled() for task in self._started)
 
     @property
     def any_cancelled(self) -> bool:
+        """True if any of the wrapped tasks is cancelled.
+        """
         return any(task.cancelled() for task in self._started)
 
     @property
     def cancelled_count(self) -> int:
+        """How many wrapped tasks are cancelled.
+        """
         return sum(task.cancelled() for task in self._started)
 
     @cached_property
     def results(self) -> list[T]:
+        """The list of results from all wrapped tasks.
+
+        It can be used only after the `Tasks` was awaited and all tasks were successful.
+        """
         assert self._awaited, 'the tasks should be awaited before you can get results'
         return [task.result() for task in self._started]
 
     @property
     def available_results(self) -> list[T]:
+        """Get results of all done tasks.
+        """
         return [task.result() for task in self._started if task.done()]
 
     def start(self, coro: C[T], name: str | None = None) -> None:
-        """Immediately schedule the coroutine.
+        """Schedule the coroutine.
+
+        The coroutine may be executed the next time you call `await` anywhere in your code.
+        It will be definitely executed when you await this `Tasks` instance.
         """
         task = asyncio.create_task(coro, name=name)
         self._started.append(task)
 
     def defer(self, coro: C[None]) -> None:
+        """Exeecute the coroutine after all tasks are finished (or any failed).
+
+        Use it to close resources needed for the tasks.
+        See also: `contextlib.AsyncExitStack`.
+        """
         self._deferred.append(coro)
 
     async def cancel_all(self) -> None:
+        """Request cancellation for all wrapped tasks.
+
+        It will raise `asyncio.CancelledError` from the current `await` of each task.
+        The exception may be caught or suppressed by the task.
+        """
         self._awaited = True
         for task in self._started:
             task.cancel()
 
-    async def wait_all_cancelled(self, duration: float = 5, pause: float = 0) -> None:
-        assert math.isfinite(pause)
+    async def wait_all_cancelled(self) -> None:
+        """Block until all tasks are cancelled.
+
+        If timeout is reached, `TimeoutError` is raised.
+        """
         start = time.monotonic()
         for task in self._started:
             while not task.cancelled():
-                if not math.isinf(duration):
+                if self.timeout is not None:
                     spent = time.monotonic() - start
-                    if spent > duration:
+                    if spent > self.timeout:
                         raise TimeoutError
-                await asyncio.sleep(pause)
+                await asyncio.sleep(0)
 
     def merge(self, other: Tasks[G]) -> Tasks[T | G]:
+        """Merge tasks from the current and the given `Tasks` instances.
+        """
         assert not self._awaited
         assert not other._awaited
         return dataclasses.replace(
@@ -102,6 +155,8 @@ class Tasks(Generic[T]):
         )
 
     def copy(self) -> Tasks[T]:
+        """Create a deep copy of the `Tasks` instance.
+        """
         return dataclasses.replace(
             self,
             _started=self._started.copy(),
@@ -109,13 +164,15 @@ class Tasks(Generic[T]):
         )
 
     async def wait(self) -> None:
-        """Wait for all started and deferred coroutines to finish.
+        """Wait for all started and deferred tasks to finish.
         """
         async for _ in self.get_channel():
             pass
 
     async def get_list(self) -> list[T]:
-        """Wait for all started and deferred coroutines to finish.
+        """Wait for all started and deferred tasks to finish.
+
+        Returns the list of tasks results in the same order as tasks were started.
         """
         try:
             results = await self._list()
@@ -125,7 +182,9 @@ class Tasks(Generic[T]):
         return results
 
     async def get_channel(self) -> AsyncIterator[T]:
-        """Wait for all started and deferred coroutines to finish.
+        """Iterate over results of all coroutines out of order.
+
+        Each result is returned as soon as any task completes.
         """
         try:
             futures = asyncio.as_completed(self._started, timeout=self.timeout)
@@ -155,6 +214,12 @@ class Tasks(Generic[T]):
             warnings.warn('Tasks instance was never awaited')
 
     async def __aenter__(self: G) -> G:
+        """Use Tasks as a context manager to automatically await on exit.
+
+        Tasks as a context manager:
+        1. Awaits for all wrapped tasks when leaving the context.
+        2. ALways runs deferred functions, including when the context fails.
+        """
         return self
 
     async def __aexit__(self, exc_type: Exception | None, exc, tb) -> None:

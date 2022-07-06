@@ -81,13 +81,14 @@ async def test_copy() -> None:
     tasks1.start(double(3))
 
     tasks2 = tasks1.copy()
-    tasks2.start(double(4))
+    tasks1.start(double(4))
+    tasks2.start(double(5))
 
     results1 = await tasks1
     results2 = await tasks2
 
-    assert results1 == [6]
-    assert results2 == [6, 8]
+    assert results1 == [6, 8]
+    assert results2 == [6, 10]
 
 
 @pytest.mark.asyncio
