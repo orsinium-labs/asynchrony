@@ -126,8 +126,8 @@ class Tasks(Generic[T]):
         for task in self._started:
             try:
                 exc = task.exception()
-            except asyncio.CancelledError as exc:
-                exceptions.append(exc)
+            except asyncio.CancelledError as err:
+                exceptions.append(err)
             else:
                 if exc is not None:
                     exceptions.append(exc)
@@ -171,7 +171,7 @@ class Tasks(Generic[T]):
         """
         self._deferred.append(coro)
 
-    def cancel_all(self, message: str | None = None) -> None:
+    def cancel_all(self) -> None:
         """Request cancellation for all wrapped tasks.
 
         It will raise `asyncio.CancelledError` from the current `await` of each task.
@@ -179,7 +179,7 @@ class Tasks(Generic[T]):
         """
         self._awaited = True
         for task in self._started:
-            task.cancel(message)
+            task.cancel()
 
     def merge(self, other: Tasks[G]) -> Tasks[T | G]:
         """Merge tasks from the current and the given `Tasks` instances.

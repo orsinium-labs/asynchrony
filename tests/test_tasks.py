@@ -47,6 +47,7 @@ async def test_basic_start_and_list() -> None:
     assert not tasks.all_cancelled
     assert tasks.cancelled_count == 0
     assert tasks.all_succesful
+    assert tasks.exceptions == ()
 
 
 @pytest.mark.asyncio
@@ -169,12 +170,14 @@ async def test_cancel_all() -> None:
     tasks.cancel_all()
     await tasks.wait(safe=True)
 
-    assert tasks.any_cancelled
-    assert tasks.all_cancelled
-    assert tasks.cancelled_count == 2
-    assert tasks.any_done
-    assert tasks.all_done
     assert tasks.done_count == 2
+    assert tasks.cancelled_count == 2
+
+    assert tasks.all_done
+    assert tasks.all_cancelled
+
+    assert tasks.any_cancelled
+    assert tasks.any_done  # type: ignore[unreachable]
 
 
 @pytest.mark.asyncio
