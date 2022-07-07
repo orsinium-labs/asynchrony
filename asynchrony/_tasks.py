@@ -21,6 +21,7 @@ class Tasks(Generic[T]):
         timeout: how long to await for tasks to finish.
         cancel_on_failure: if a task fails, cancel all other tasks.
             It includes cases when a task was cancelled or timed out.
+        max_concurrency: how many workers can be executed at the same time.
 
     Example::
 
@@ -32,6 +33,7 @@ class Tasks(Generic[T]):
     """
     timeout: float | None = None
     cancel_on_failure: bool = False
+    max_concurrency: int | None = None
 
     _started: list[asyncio.Task[T]] = dataclasses.field(default_factory=list)
     _deferred: list[C[None]] = dataclasses.field(default_factory=list)
@@ -149,6 +151,11 @@ class Tasks(Generic[T]):
                 pass
         return tuple(results)
 
+    @cached_property
+    def _semaphore(self) -> asyncio.Semaphore:
+        assert self.max_concurrency is not None
+        return asyncio.Semaphore(self.max_concurrency)
+
     def map(self, items: Iterable[G], f: Callable[[G], C[T]]) -> None:
         """Start `f` for each item from `items`.
         """
@@ -160,8 +167,14 @@ class Tasks(Generic[T]):
         The coroutine may be executed the next time you call `await` anywhere in your code.
         It will be definitely executed when you await this `Tasks` instance.
         """
+        if self.max_concurrency is not None:
+            coro = self._run_with_semaphore(coro)
         task = asyncio.create_task(coro, name=name)
         self._started.append(task)
+
+    async def _run_with_semaphore(self, coro: C[T]) -> T:
+        async with self._semaphore:
+            return await coro
 
     def defer(self, coro: C[None]) -> None:
         """Execute the coroutine after all tasks are finished (or any failed).

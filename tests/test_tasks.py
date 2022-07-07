@@ -222,6 +222,16 @@ async def test_defer_twice() -> None:
 
 
 @pytest.mark.asyncio
+async def test_defer_context_explodes() -> None:
+    mock = Mock()
+    with pytest.raises(ValueError):
+        async with Tasks[int](timeout=5) as tasks:
+            tasks.defer(mock.entry())
+            raise ValueError
+    assert mock.calls == 1
+
+
+@pytest.mark.asyncio
 async def test_await__cancel_on_failure() -> None:
     tasks = Tasks[int](timeout=5, cancel_on_failure=True)
     tasks.start(fail())
@@ -306,3 +316,21 @@ async def test_exceptions() -> None:
     assert type(tasks.exceptions[0]) is ZeroDivisionError
     assert type(tasks.exceptions[1]) is ZeroDivisionError
     assert not tasks.all_succesful
+
+
+@pytest.mark.asyncio
+async def test_max_concurrency() -> None:
+    online = 0
+
+    async def f() -> None:
+        nonlocal online
+        online += 1
+        for _ in range(20):
+            assert 1 <= online <= 4
+            await asyncio.sleep(0)
+        online -= 1
+
+    tasks = Tasks[None](timeout=5, max_concurrency=4)
+    for _ in range(200):
+        tasks.start(f())
+    await tasks
