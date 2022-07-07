@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 from functools import cached_property
-import time
 import warnings
 from typing import AsyncIterator, Callable, Coroutine, Generator, Generic, Iterable, TypeVar
 
@@ -21,6 +20,7 @@ class Tasks(Generic[T]):
 
         timeout: how long to await for tasks to finish.
         cancel_on_failure: if a task fails, cancel all other tasks.
+            It includes cases when a task was cancelled or timed out.
 
     Example::
 
@@ -116,7 +116,7 @@ class Tasks(Generic[T]):
         """
         self._deferred.append(coro)
 
-    async def cancel_all(self) -> None:
+    async def cancel_all(self, message: str | None = None) -> None:
         """Request cancellation for all wrapped tasks.
 
         It will raise `asyncio.CancelledError` from the current `await` of each task.
@@ -124,21 +124,7 @@ class Tasks(Generic[T]):
         """
         self._awaited = True
         for task in self._started:
-            task.cancel()
-
-    async def wait_all_cancelled(self) -> None:
-        """Block until all tasks are cancelled.
-
-        If timeout is reached, `TimeoutError` is raised.
-        """
-        start = time.monotonic()
-        for task in self._started:
-            while not task.cancelled():
-                if self.timeout is not None:
-                    spent = time.monotonic() - start
-                    if spent > self.timeout:
-                        raise TimeoutError
-                await asyncio.sleep(0)
+            task.cancel(message)
 
     def merge(self, other: Tasks[G]) -> Tasks[T | G]:
         """Merge tasks from the current and the given `Tasks` instances.
@@ -160,12 +146,13 @@ class Tasks(Generic[T]):
             _deferred=self._deferred.copy(),
         )
 
-    async def wait(self) -> None:
+    async def wait(self, *, safe: bool = False) -> None:
         """Wait for all started and deferred tasks to finish.
 
-        If a task raised an exception, `wait` wil re-raise it.
+        If `safe=True`, all exceptions from tasks will be ignored.
+        Otherwise, if a task raised an exception, `wait` wil re-raise it.
         """
-        async for _ in self.get_channel():
+        async for _ in self.get_channel(safe=safe):
             pass
 
     async def get_list(self) -> list[T]:
@@ -175,29 +162,48 @@ class Tasks(Generic[T]):
         """
         try:
             results = await self._list()
-        except Exception:
-            self._handle_failure()
+        except (Exception, asyncio.CancelledError) as exc:
+            self._handle_failure(exc)
             raise
         finally:
             await self._run_deferred()
             self._awaited = True
         return results
 
-    async def get_channel(self) -> AsyncIterator[T]:
+    async def get_channel(self, *, safe: bool = False) -> AsyncIterator[T]:
         """Iterate over results of all coroutines out of order.
 
         Each result is returned as soon as any task completes.
+
+        If `safe=True`, all exceptions from tasks will be ignored.
+        Otherwise, the first encountered exception will be raised.
         """
         try:
-            futures = asyncio.as_completed(self._started, timeout=self.timeout)
-            for future in futures:
-                yield await future
-        except Exception:
-            self._handle_failure()
+            async for result in self._channel(safe=safe):
+                yield result
+        except (Exception, asyncio.CancelledError) as exc:
+            self._handle_failure(exc)
             raise
         finally:
             await self._run_deferred()
             self._awaited = True
+
+    async def _channel(self, safe: bool) -> AsyncIterator[T]:
+        futures = asyncio.as_completed(self._started, timeout=self.timeout)
+        for future in futures:
+            try:
+                result = await future
+            except asyncio.CancelledError:
+                if not safe:
+                    raise
+                curr_task = asyncio.current_task()
+                if curr_task and curr_task.cancelled():
+                    raise
+            except Exception:
+                if not safe:
+                    raise
+            else:
+                yield result
 
     async def _list(self) -> list[T]:
         if not self._started:
@@ -214,7 +220,7 @@ class Tasks(Generic[T]):
         await asyncio.wait_for(future, timeout=self.timeout)
         self._deferred = []
 
-    def _handle_failure(self) -> None:
+    def _handle_failure(self, exc: BaseException) -> None:
         if not self.cancel_on_failure:
             return
         for task in self._started:
