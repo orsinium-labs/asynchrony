@@ -254,7 +254,7 @@ async def test_await__cancel_on_failure() -> None:
 
 @pytest.mark.asyncio
 async def test_await__do_not_cancel_on_failure() -> None:
-    tasks = Tasks[int](timeout=5)
+    tasks = Tasks[int](timeout=5, cancel_on_failure=False)
     tasks.start(fail())
     tasks.start(freeze())
     tasks.start(freeze())

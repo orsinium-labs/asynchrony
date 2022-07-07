@@ -32,7 +32,7 @@ class Tasks(Generic[T]):
 
     """
     timeout: float | None = None
-    cancel_on_failure: bool = False
+    cancel_on_failure: bool = True
     max_concurrency: int | None = None
 
     _started: list[asyncio.Task[T]] = dataclasses.field(default_factory=list)
