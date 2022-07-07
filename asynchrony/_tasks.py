@@ -79,20 +79,75 @@ class Tasks(Generic[T]):
         """
         return sum(task.cancelled() for task in self._started)
 
-    @cached_property
-    def results(self) -> list[T]:
-        """The list of results from all wrapped tasks.
-
-        It can be used only after the `Tasks` was awaited and all tasks were successful.
+    @property
+    def all_succesful(self) -> bool:
+        """True if none of the tasks were failed or cancelled.
         """
-        assert self._awaited, 'the tasks should be awaited before you can get results'
-        return [task.result() for task in self._started]
+        assert self._awaited, 'tasks must be awaited first'
+        for task in self._started:
+            if not task.done():
+                return False
+            if task.cancelled():
+                return False
+            if task.exception() is not None:
+                return False
+        return True
+
+    @cached_property
+    def results(self) -> tuple[T, ...]:
+        """Results from all wrapped tasks, except failed ones.
+
+        It can be used only after the `Tasks` was awaited.
+        Doesn't raise any exceptions, assuming that all error handling was done before,
+        when awaiting for tasks to finish.
+        """
+        assert self._awaited, 'tasks must be awaited before you can get results'
+        results = []
+        for task in self._started:
+            assert task.done()
+            if task.cancelled():
+                continue
+            try:
+                result = task.result()
+            except Exception:
+                pass
+            else:
+                results.append(result)
+        return tuple(results)
+
+    @cached_property
+    def exceptions(self) -> tuple[BaseException, ...]:
+        """All exceptions raised from tasks.
+
+        It can be used only after the `Tasks` was awaited.
+        """
+        assert self._awaited, 'tasks must be awaited before you can get exceptions'
+        exceptions: list[BaseException] = []
+        for task in self._started:
+            try:
+                exc = task.exception()
+            except asyncio.CancelledError as exc:
+                exceptions.append(exc)
+            else:
+                if exc is not None:
+                    exceptions.append(exc)
+        return tuple(exceptions)
 
     @property
-    def available_results(self) -> list[T]:
-        """Get results of all done tasks.
+    def available_results(self) -> tuple[T, ...]:
+        """Results of all succesfully finished tasks so far.
         """
-        return [task.result() for task in self._started if task.done()]
+        results = []
+        for task in self._started:
+            if not task.done():
+                continue
+            if task.cancelled():
+                continue
+            try:
+                results.append(task.result())
+            except Exception:
+                pass
+        return tuple(results)
 
     def map(self, items: Iterable[G], f: Callable[[G], C[T]]) -> None:
         """Start `f` for each item from `items`.
@@ -116,7 +171,7 @@ class Tasks(Generic[T]):
         """
         self._deferred.append(coro)
 
-    async def cancel_all(self, message: str | None = None) -> None:
+    def cancel_all(self, message: str | None = None) -> None:
         """Request cancellation for all wrapped tasks.
 
         It will raise `asyncio.CancelledError` from the current `await` of each task.
