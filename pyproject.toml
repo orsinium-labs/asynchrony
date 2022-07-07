@@ -59,7 +59,7 @@ addopts = [
     "--cov=asynchrony",
     "--cov-report=html",
     "--cov-report=term-missing:skip-covered",
-    "--cov-fail-under=85",
+    "--cov-fail-under=95",
 ]
 
 [tool.coverage.report]

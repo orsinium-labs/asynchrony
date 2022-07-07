@@ -1,30 +1,33 @@
 from __future__ import annotations
 
-import asyncio
-from logging import getLogger
+from logging import getLogger, Logger, LoggerAdapter
 from typing import Coroutine, TypeVar
 
 
-logger = getLogger(__package__)
+default_logger = getLogger(__package__)
 T = TypeVar('T')
+D = TypeVar('D')
 C = Coroutine[object, object, T]
 
 
-async def make_safe(coro: C[T], *, default: T | None = None) -> T | None:
+async def make_safe(
+    coro: C[T], *,
+    default: D | None = None,
+    logger: Logger | LoggerAdapter | None = default_logger,
+    message: str = "suppressed exception in a coroutine",
+    exception: type[BaseException] | tuple[type[BaseException], ...] = Exception,
+) -> T | D | None:
+    """
+    Args:
+        coro : the coroutine to run.
+        default: the default value to return if `coro` fails.
+        logger: the logger to use to log the failure.
+        message: the error message to log.
+        exception: the exception type(s) to catch.
+    """
     try:
         return await coro
-    except Exception:
-        logger.exception("suppressed exception")
+    except exception:
+        if logger is not None:
+            logger.exception(message)
     return default
-
-
-async def chain(*coros: C[None]) -> None:
-    for coro in coros:
-        await coro
-
-
-async def finalize(first: C[None], second: C[T]) -> T:
-    first_task = asyncio.create_task(first)
-    while not first_task.done():
-        await asyncio.sleep(0)
-    return await second
