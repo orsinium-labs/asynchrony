@@ -4,7 +4,8 @@ import asyncio
 import dataclasses
 from functools import cached_property
 import warnings
-from typing import AsyncIterator, Callable, Coroutine, Generator, Generic, Iterable, TypeVar
+from typing import AsyncIterator, Callable, Coroutine, Generator, Generic, Iterable, Iterator, TypeVar
+from ._constants import Behavior
 
 
 T = TypeVar('T', covariant=True)
@@ -96,28 +97,6 @@ class Tasks(Generic[T]):
         return True
 
     @cached_property
-    def results(self) -> tuple[T, ...]:
-        """Results from all wrapped tasks, except failed ones.
-
-        It can be used only after the `Tasks` was awaited.
-        Doesn't raise any exceptions, assuming that all error handling was done before,
-        when awaiting for tasks to finish.
-        """
-        assert self._awaited, 'tasks must be awaited before you can get results'
-        results = []
-        for task in self._started:
-            assert task.done()
-            if task.cancelled():
-                continue
-            try:
-                result = task.result()
-            except Exception:
-                pass
-            else:
-                results.append(result)
-        return tuple(results)
-
-    @cached_property
     def exceptions(self) -> tuple[BaseException, ...]:
         """All exceptions raised from tasks.
 
@@ -135,22 +114,6 @@ class Tasks(Generic[T]):
                     exceptions.append(exc)
         return tuple(exceptions)
 
-    @property
-    def available_results(self) -> tuple[T, ...]:
-        """Results of all succesfully finished tasks so far.
-        """
-        results = []
-        for task in self._started:
-            if not task.done():
-                continue
-            if task.cancelled():
-                continue
-            try:
-                results.append(task.result())
-            except Exception:
-                pass
-        return tuple(results)
-
     @cached_property
     def _semaphore(self) -> asyncio.Semaphore:
         assert self.max_concurrency is not None
@@ -159,6 +122,7 @@ class Tasks(Generic[T]):
     def map(self, items: Iterable[G], f: Callable[[G], C[T]]) -> None:
         """Start `f` for each item from `items`.
         """
+        assert not self._awaited, 'tasks already awaited'
         self._started.extend(asyncio.create_task(f(item)) for item in items)
 
     def start(self, coro: C[T], name: str | None = None) -> None:
@@ -167,6 +131,7 @@ class Tasks(Generic[T]):
         The coroutine may be executed the next time you call `await` anywhere in your code.
         It will be definitely executed when you await this `Tasks` instance.
         """
+        assert not self._awaited, 'tasks already awaited'
         if self.max_concurrency is not None:
             coro = self._run_with_semaphore(coro)
         task = asyncio.create_task(coro, name=name)
@@ -213,6 +178,26 @@ class Tasks(Generic[T]):
             _started=self._started.copy(),
             _deferred=self._deferred.copy(),
         )
+
+    def get_results(
+        self,
+        failed: Behavior = Behavior.RAISE,
+        cancelled: Behavior = Behavior.RAISE,
+        pending: Behavior = Behavior.RAISE,
+    ) -> Iterator[T | BaseException | None]:
+        assert self._awaited, 'tasks must be awaited first'
+        for task in self._started:
+            try:
+                yield task.result()
+            except asyncio.CancelledError as exc:
+                if cancelled is not Behavior.SKIP:
+                    yield cancelled.pipe(exc)
+            except asyncio.InvalidStateError as exc:
+                if pending is not Behavior.SKIP:
+                    yield pending.pipe(exc)
+            except Exception as exc:
+                if failed is not Behavior.SKIP:
+                    yield failed.pipe(exc)
 
     async def wait(self, *, safe: bool = False) -> None:
         """Wait for all started and deferred tasks to finish.

@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import dataclass
 from random import randint
 import pytest
-from asynchrony import Tasks
+from asynchrony import Tasks, SKIP
 
 
 async def double(x: int) -> int:
@@ -36,9 +36,7 @@ async def test_basic_start_and_list() -> None:
     tasks.start(double(7))
     results = await tasks.get_list()
     assert results == [6, 14]
-
-    assert results == list(tasks.results)
-    assert results == list(tasks.available_results)
+    assert results == list(tasks.get_results())
 
     assert tasks.any_done
     assert tasks.all_done
@@ -62,10 +60,8 @@ async def test_await() -> None:
 async def test_wait() -> None:
     tasks = Tasks[int](timeout=5)
     tasks.start(double(3))
-    assert tasks.available_results == ()
     await tasks.wait()
-    assert list(tasks.results) == [6]
-    assert list(tasks.available_results) == [6]
+    assert list(tasks.get_results()) == [6]
 
 
 @pytest.mark.asyncio
@@ -89,7 +85,7 @@ async def test_context_manager() -> None:
     async with Tasks[int](timeout=5) as tasks:
         tasks.start(double(3))
     assert tasks.all_done
-    assert list(tasks.results) == [6]
+    assert list(tasks.get_results()) == [6]
 
 
 @pytest.mark.asyncio
@@ -247,8 +243,8 @@ async def test_await__cancel_on_failure() -> None:
     with pytest.raises((asyncio.CancelledError, ZeroDivisionError)):
         await tasks.wait()
     assert len(tasks.exceptions) == 4
-    assert tasks.available_results == ()
-    assert tasks.results == ()
+    results = list(tasks.get_results(failed=SKIP, cancelled=SKIP))
+    assert results == []
     assert not tasks.all_succesful
 
 
@@ -282,7 +278,8 @@ async def test_timeout__await__cancel_on_failure() -> None:
     assert type(tasks.exceptions[0]) is asyncio.CancelledError
     assert type(tasks.exceptions[1]) is asyncio.CancelledError
     assert not tasks.all_succesful
-    assert tasks.results == ()
+    results = list(tasks.get_results(failed=SKIP, cancelled=SKIP))
+    assert results == []
 
 
 @pytest.mark.asyncio
@@ -301,9 +298,9 @@ async def test_wait__cancel_on_failure() -> None:
     with pytest.raises((asyncio.CancelledError, ZeroDivisionError)):
         await tasks.wait()
     assert len(tasks.exceptions) == 4
-    assert tasks.available_results == ()
-    assert tasks.results == ()
     assert not tasks.all_succesful
+    results = list(tasks.get_results(failed=SKIP, cancelled=SKIP))
+    assert results == []
 
 
 @pytest.mark.asyncio
