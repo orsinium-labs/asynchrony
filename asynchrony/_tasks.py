@@ -123,7 +123,11 @@ class Tasks(Generic[T]):
         """Start `f` for each item from `items`.
         """
         assert not self._awaited, 'tasks already awaited'
-        self._started.extend(asyncio.create_task(f(item)) for item in items)
+        for item in items:
+            coro = f(item)
+            if self.max_concurrency is not None:
+                coro = self._run_with_semaphore(coro)
+            self._started.append(asyncio.create_task(coro))
 
     def start(self, coro: C[T], name: str | None = None) -> None:
         """Schedule the coroutine.
