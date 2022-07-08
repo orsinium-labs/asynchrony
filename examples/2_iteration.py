@@ -19,7 +19,7 @@ async def main() -> None:
         # `tasks.map` is a shortcut for calling `tasks.start` in a loop for each item
         # of a sequence.
         tasks.map(URLS, lambda url: check_if_healthy(session, url))
-        async for message in tasks.get_channel():
+        async for message in tasks.iter():
             print(message)
 
 
