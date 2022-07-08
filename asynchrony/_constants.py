@@ -17,7 +17,7 @@ class Behavior(enum.Enum):
         if self is Behavior.RETURN:
             return exc
         if self is Behavior.RAISE:
-            raise exc
+            raise
         if self is Behavior.NONE:
             return None
         raise RuntimeError('invalid state')  # pragma: no cover

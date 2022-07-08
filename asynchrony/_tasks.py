@@ -6,7 +6,7 @@ import warnings
 from functools import cached_property
 from typing import (
     TYPE_CHECKING, AsyncIterator, Awaitable, Callable, Coroutine, Generator,
-    Generic, Iterable, List, Literal, TypeVar, overload,
+    Generic, Iterable, Iterator, List, Literal, TypeVar, overload,
 )
 
 from ._constants import Behavior, RAISE, SKIP, AWAIT
@@ -69,6 +69,11 @@ class Tasks(Generic[T]):
         return sum(task.done() for task in self._started)
 
     @property
+    def done_map(self) -> Iterator[bool]:
+        for task in self._started:
+            yield task.done()
+
+    @property
     def all_cancelled(self) -> bool:
         """True if all the wrapped tasks are cancelled.
         """
@@ -87,18 +92,27 @@ class Tasks(Generic[T]):
         return sum(task.cancelled() for task in self._started)
 
     @property
-    def all_succesful(self) -> bool:
+    def cancelled_map(self) -> Iterator[bool]:
+        for task in self._started:
+            yield task.cancelled()
+
+    @property
+    def all_successful(self) -> bool:
         """True if none of the tasks were failed or cancelled.
         """
-        assert self._awaited, 'tasks must be awaited first'
+        return all(self.successful_map)
+
+    @property
+    def successful_map(self) -> Iterator[bool]:
         for task in self._started:
             if not task.done():
-                return False
-            if task.cancelled():
-                return False
-            if task.exception() is not None:
-                return False
-        return True
+                yield False
+            elif task.cancelled():
+                yield False
+            elif task.exception() is not None:
+                yield False
+            else:
+                yield True
 
     @cached_property
     def exceptions(self) -> tuple[BaseException, ...]:

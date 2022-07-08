@@ -51,7 +51,7 @@ async def test_basic_start_and_list() -> None:
     assert not tasks.any_cancelled
     assert not tasks.all_cancelled
     assert tasks.cancelled_count == 0
-    assert tasks.all_succesful
+    assert tasks.all_successful
     assert tasks.exceptions == ()
 
 
@@ -246,7 +246,7 @@ async def test_await__cancel_on_failure() -> None:
     assert len(tasks.exceptions) == 4
     results = await tasks.list(failed=SKIP, cancelled=SKIP)
     assert results == []
-    assert not tasks.all_succesful
+    assert not tasks.all_successful
 
 
 @pytest.mark.asyncio
@@ -260,7 +260,7 @@ async def test_await__do_not_cancel_on_failure() -> None:
         await tasks
     await asyncio.sleep(0)
     assert not tasks.any_cancelled
-    assert not tasks.all_succesful
+    assert not tasks.all_successful
     tasks.cancel_all()
 
 
@@ -271,14 +271,14 @@ async def test_timeout__await__cancel_on_failure() -> None:
     tasks.start(freeze())
     with pytest.raises(asyncio.TimeoutError):
         await tasks
-    assert not tasks.all_succesful
+    assert not tasks.all_successful
     await tasks.wait(safe=True)
     assert tasks.any_cancelled
     assert tasks.all_cancelled
     assert len(tasks.exceptions) == 2
     assert type(tasks.exceptions[0]) is asyncio.CancelledError
     assert type(tasks.exceptions[1]) is asyncio.CancelledError
-    assert not tasks.all_succesful
+    assert not tasks.all_successful
     results = await tasks.list(failed=SKIP, cancelled=SKIP, pending=RAISE)
     assert results == []
 
@@ -299,7 +299,7 @@ async def test_wait__cancel_on_failure() -> None:
     with pytest.raises((asyncio.CancelledError, ZeroDivisionError)):
         await tasks.wait()
     assert len(tasks.exceptions) == 4
-    assert not tasks.all_succesful
+    assert not tasks.all_successful
     results = await tasks.list(failed=SKIP, cancelled=SKIP, pending=RAISE)
     assert results == []
 
@@ -313,7 +313,7 @@ async def test_exceptions() -> None:
     assert len(tasks.exceptions) == 2
     assert type(tasks.exceptions[0]) is ZeroDivisionError
     assert type(tasks.exceptions[1]) is ZeroDivisionError
-    assert not tasks.all_succesful
+    assert not tasks.all_successful
 
 
 @pytest.mark.asyncio

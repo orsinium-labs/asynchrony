@@ -1,3 +1,7 @@
+"""
+This is the first tutorial.
+It will show you the basics of using `Tasks` to wait for multiple tasks to finish.
+"""
 import asyncio
 from aiohttp import ClientSession
 from asynchrony import Tasks
