@@ -16,7 +16,7 @@ Features:
 python3 -m pip install asynchrony
 ```
 
-A simple example of starting 100 tasks concurrently and waiting for all of them to finish:
+A simple example of starting concurrent tasks for all URLs (maximum 100 tasks at the same time) and waiting for all of them to finish:
 
 ```python
 from asynchrony import Tasks
@@ -24,8 +24,9 @@ from asynchrony import Tasks
 async def download_page(url: str) -> bytes:
     ...
 
+urls = [...]
 tasks = Tasks[bytes](timeout=10, max_concurrency=100)
-for url in URLS:
+for url in urls:
     tasks.start(download_page(url))
 pages = await tasks
 ```
