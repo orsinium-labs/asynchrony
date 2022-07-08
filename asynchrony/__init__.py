@@ -1,6 +1,6 @@
 """Collection of utilities to write safe asyncio code.
 """
-from ._constants import Behavior
+from ._constants import Behavior, RETURN, RAISE, SKIP, NONE
 from ._helpers import make_safe
 from ._tasks import Tasks
 
@@ -15,9 +15,3 @@ __all__ = [
     'SKIP',
     'NONE',
 ]
-
-
-RETURN = Behavior.RETURN
-RAISE = Behavior.RAISE
-SKIP = Behavior.SKIP
-NONE = Behavior.NONE

@@ -6,10 +6,10 @@ import warnings
 from functools import cached_property
 from typing import (
     TYPE_CHECKING, AsyncIterator, Awaitable, Callable, Coroutine, Generator,
-    Generic, Iterable, List, TypeVar,
+    Generic, Iterable, List, Literal, TypeVar, overload,
 )
 
-from ._constants import Behavior
+from ._constants import Behavior, RAISE, SKIP, AWAIT
 
 T = TypeVar('T', covariant=True)
 if TYPE_CHECKING:
@@ -193,16 +193,64 @@ class Tasks(Generic[T]):
         If `safe=True`, all exceptions from tasks will be ignored.
         Otherwise, if a task raised an exception, `wait` wil re-raise it.
         """
-        beh = Behavior.SKIP if safe else Behavior.RAISE
-        async for _ in self.iter(failed=beh, cancelled=beh, pending=Behavior.AWAIT):
+        beh = SKIP if safe else RAISE
+        async for _ in self.iter(failed=beh, cancelled=beh, pending=AWAIT):
             pass
+
+    # if none behaviors are NONE nor RETURN, return T
+    @overload
+    async def list(
+        self, *,
+        failed:     Literal[Behavior.RAISE, Behavior.SKIP] = ...,
+        cancelled:  Literal[Behavior.RAISE, Behavior.SKIP] = ...,
+        pending:    Literal[Behavior.RAISE, Behavior.SKIP, Behavior.AWAIT] = ...,
+    ) -> List[T]:
+        pass
+
+    # if there is a RETURN, return also exceptions
+    @overload
+    async def list(
+        self, *,
+        failed:     Literal[Behavior.RETURN],
+        cancelled:  Literal[Behavior.RAISE, Behavior.SKIP, Behavior.RETURN] = ...,
+        pending:    Literal[Behavior.RAISE, Behavior.SKIP, Behavior.AWAIT, Behavior.RETURN] = ...,
+    ) -> List[T | BaseException]:
+        pass
+
+    @overload
+    async def list(
+        self, *,
+        failed:     Literal[Behavior.RAISE, Behavior.SKIP, Behavior.RETURN],
+        cancelled:  Literal[Behavior.RETURN] = ...,
+        pending:    Literal[Behavior.RAISE, Behavior.SKIP, Behavior.AWAIT, Behavior.RETURN] = ...,
+    ) -> List[T | BaseException]:
+        pass
+
+    @overload
+    async def list(
+        self, *,
+        failed:     Literal[Behavior.RAISE, Behavior.SKIP, Behavior.RETURN],
+        cancelled:  Literal[Behavior.RAISE, Behavior.SKIP, Behavior.RETURN] = ...,
+        pending:    Literal[Behavior.RETURN] = ...,
+    ) -> List[T | BaseException]:
+        pass
+
+    # if nothing else matched, can return anything
+    @overload
+    async def list(
+        self, *,
+        failed:     Behavior = ...,
+        cancelled:  Behavior = ...,
+        pending:    Behavior = ...,
+    ) -> List[T | BaseException | None]:
+        pass
 
     async def list(
         self, *,
-        failed: Behavior = Behavior.RAISE,
-        cancelled: Behavior = Behavior.RAISE,
-        pending: Behavior = Behavior.AWAIT,
-    ) -> List[T | BaseException | None]:
+        failed: Behavior = RAISE,
+        cancelled: Behavior = RAISE,
+        pending: Behavior = AWAIT,
+    ) -> List:
         """Wait for all started and deferred tasks to finish.
 
         Returns the list of tasks results in the same order as tasks were started.
@@ -215,11 +263,95 @@ class Tasks(Generic[T]):
         )
         return [result async for result in iterator]
 
+    # if none behaviors are NONE nor RETURN, return T
+    @overload
+    def iter(
+        self, *,
+        failed:     Literal[Behavior.RAISE, Behavior.SKIP] = ...,
+        cancelled:  Literal[Behavior.RAISE, Behavior.SKIP] = ...,
+        pending:    Literal[Behavior.RAISE, Behavior.SKIP, Behavior.AWAIT] = ...,
+        ordered:    bool = ...,
+    ) -> AsyncIterator[T]:
+        pass
+
+    # if some behaviors are RETURN, can also return exceptions
+    @overload
+    def iter(
+        self, *,
+        failed:     Literal[Behavior.RETURN],
+        cancelled:  Literal[Behavior.RAISE, Behavior.SKIP, Behavior.RETURN] = ...,
+        pending:    Literal[Behavior.RAISE, Behavior.SKIP, Behavior.AWAIT, Behavior.RETURN] = ...,
+        ordered:    bool = ...,
+    ) -> AsyncIterator[T | BaseException]:
+        pass
+
+    @overload
+    def iter(
+        self, *,
+        failed:     Literal[Behavior.RAISE, Behavior.SKIP, Behavior.RETURN] = ...,
+        cancelled:  Literal[Behavior.RETURN],
+        pending:    Literal[Behavior.RAISE, Behavior.SKIP, Behavior.AWAIT, Behavior.RETURN] = ...,
+        ordered:    bool = ...,
+    ) -> AsyncIterator[T | BaseException]:
+        pass
+
+    @overload
+    def iter(
+        self, *,
+        failed:     Literal[Behavior.RAISE, Behavior.SKIP, Behavior.RETURN] = ...,
+        cancelled:  Literal[Behavior.RAISE, Behavior.SKIP, Behavior.RETURN] = ...,
+        pending:    Literal[Behavior.RETURN],
+        ordered:    bool = ...,
+    ) -> AsyncIterator[T | BaseException]:
+        pass
+
+    # if some behaviors are NONE, can also return None
+    @overload
+    def iter(
+        self, *,
+        failed:     Literal[Behavior.NONE],
+        cancelled:  Literal[Behavior.RAISE, Behavior.SKIP, Behavior.NONE] = ...,
+        pending:    Literal[Behavior.RAISE, Behavior.SKIP, Behavior.AWAIT, Behavior.NONE] = ...,
+        ordered:    bool = ...,
+    ) -> AsyncIterator[T | None]:
+        pass
+
+    @overload
+    def iter(
+        self, *,
+        failed:     Literal[Behavior.RAISE, Behavior.SKIP, Behavior.NONE] = ...,
+        cancelled:  Literal[Behavior.NONE],
+        pending:    Literal[Behavior.RAISE, Behavior.SKIP, Behavior.AWAIT, Behavior.NONE] = ...,
+        ordered:    bool = ...,
+    ) -> AsyncIterator[T | None]:
+        pass
+
+    @overload
+    def iter(
+        self, *,
+        failed:     Literal[Behavior.RAISE, Behavior.SKIP, Behavior.NONE] = ...,
+        cancelled:  Literal[Behavior.RAISE, Behavior.SKIP, Behavior.NONE] = ...,
+        pending:    Literal[Behavior.NONE],
+        ordered:    bool = ...,
+    ) -> AsyncIterator[T | None]:
+        pass
+
+    # if nothing else matched, can return anything
+    @overload
+    def iter(
+        self, *,
+        failed:     Behavior = ...,
+        cancelled:  Behavior = ...,
+        pending:    Behavior = ...,
+        ordered:    bool = ...,
+    ) -> AsyncIterator[T | BaseException | None]:
+        pass
+
     async def iter(
         self, *,
-        failed: Behavior = Behavior.RAISE,
-        cancelled: Behavior = Behavior.RAISE,
-        pending: Behavior = Behavior.AWAIT,
+        failed: Behavior = RAISE,
+        cancelled: Behavior = RAISE,
+        pending: Behavior = AWAIT,
         ordered: bool = False,
     ) -> AsyncIterator[T | BaseException | None]:
         """Iterate over results of all coroutines.
@@ -306,7 +438,7 @@ class Tasks(Generic[T]):
     def __await__(self) -> Generator[object, object, List[T]]:
         coro = self.list()
         result = yield from asyncio.ensure_future(coro)
-        return result  # type: ignore[return-value]
+        return result
 
     def __add__(self, other: Tasks[G]) -> Tasks[T | G]:
         return self.merge(other)

@@ -65,6 +65,7 @@ addopts = [
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING",
+    "    pass",
 ]
 
 [tool.coverage.run]
