@@ -35,24 +35,27 @@ async def test_basic_start_and_list() -> None:
     tasks.start(double(3))
     tasks.start(double(7))
 
-    assert not tasks.any_done
-    assert not tasks.all_done
-    assert tasks.done_count == 0
-    assert not tasks.any_cancelled
-    assert not tasks.all_cancelled
-    assert tasks.cancelled_count == 0
+    assert not any(t.done for t in tasks)
+    assert not all(t.done for t in tasks)
+    assert sum(t.done for t in tasks) == 0
+    assert not any(t.cancelled for t in tasks)
+    assert not all(t.cancelled for t in tasks)
+    assert sum(t.cancelled for t in tasks) == 0
+    assert not any(t.failed for t in tasks)
 
     results = await tasks
     assert results == [6, 14]
 
-    assert tasks.all_done
-    assert tasks.any_done
-    assert tasks.done_count == 2
-    assert not tasks.any_cancelled
-    assert not tasks.all_cancelled
-    assert tasks.cancelled_count == 0
-    assert tasks.all_successful
-    assert tasks.exceptions == ()
+    assert all(t.done for t in tasks)
+    assert any(t.done for t in tasks)
+    assert sum(t.done for t in tasks) == 2
+    assert not any(t.cancelled for t in tasks)
+    assert not all(t.cancelled for t in tasks)
+    assert sum(t.cancelled for t in tasks) == 0
+    assert all(t.ok for t in tasks)
+    assert list(tasks.exceptions) == []
+    assert not any(t.failed for t in tasks)
+    assert len(tasks) == 2
 
 
 @pytest.mark.asyncio
@@ -84,7 +87,7 @@ async def test_list_empty() -> None:
 async def test_context_manager() -> None:
     async with Tasks[int](timeout=5) as tasks:
         tasks.start(double(3))
-    assert tasks.all_done
+    assert all(t.done for t in tasks)
     results = await tasks.list(pending=RAISE)
     assert results == [6]
 
@@ -159,22 +162,22 @@ async def test_cancel_all() -> None:
     tasks.start(double(4))
     tasks.start(double(5))
 
-    assert not tasks.any_cancelled
-    assert not tasks.any_done
-    assert tasks.cancelled_count == 0
-    assert tasks.done_count == 0
+    assert not any(t.cancelled for t in tasks)
+    assert not any(t.done for t in tasks)
+    assert sum(t.cancelled for t in tasks) == 0
+    assert sum(t.done for t in tasks) == 0
 
     tasks.cancel_all()
     await tasks.wait(safe=True)
 
-    assert tasks.done_count == 2
-    assert tasks.cancelled_count == 2
+    assert sum(t.done for t in tasks) == 2
+    assert sum(t.cancelled for t in tasks) == 2
 
-    assert tasks.all_done
-    assert tasks.all_cancelled
+    assert all(t.done for t in tasks)
+    assert all(t.cancelled for t in tasks)
 
-    assert tasks.any_cancelled
-    assert tasks.any_done
+    assert any(t.cancelled for t in tasks)
+    assert any(t.done for t in tasks)
 
 
 @pytest.mark.asyncio
@@ -235,18 +238,23 @@ async def test_await__cancel_on_failure() -> None:
     tasks.start(freeze())
     tasks.start(freeze())
     tasks.start(freeze())
+    assert tasks[1].exception is None
     with pytest.raises(ZeroDivisionError):
         await tasks
     await tasks.wait(safe=True)
-    assert tasks.any_cancelled
-    assert tasks.done_count == 4
-    assert tasks.cancelled_count == 3
+    assert any(t.cancelled for t in tasks)
+    assert sum(t.done for t in tasks) == 4
+    assert sum(t.cancelled for t in tasks) == 3
     with pytest.raises((asyncio.CancelledError, ZeroDivisionError)):
         await tasks.wait()
-    assert len(tasks.exceptions) == 4
+    excs = list(tasks.exceptions)
+    assert len(excs) == 4
     results = await tasks.list(failed=SKIP, cancelled=SKIP)
     assert results == []
-    assert not tasks.all_successful
+    assert not any(t.ok for t in tasks)
+    assert sum(t.failed for t in tasks) == 1
+    assert type(tasks[0].exception) is ZeroDivisionError
+    assert type(tasks[1].exception) is asyncio.CancelledError  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -259,9 +267,21 @@ async def test_await__do_not_cancel_on_failure() -> None:
     with pytest.raises(ZeroDivisionError):
         await tasks
     await asyncio.sleep(0)
-    assert not tasks.any_cancelled
-    assert not tasks.all_successful
+    assert not any(t.cancelled for t in tasks)
+    assert not any(t.ok for t in tasks)
     tasks.cancel_all()
+
+
+@pytest.mark.asyncio
+async def test_cancel_each_task() -> None:
+    tasks = Tasks[int](timeout=5, cancel_on_failure=False)
+    tasks.start(freeze())
+    tasks.start(freeze())
+    tasks.start(freeze())
+    for task in tasks:
+        task.cancel()
+    await tasks.wait(safe=True)
+    assert all(t.cancelled for t in tasks)
 
 
 @pytest.mark.asyncio
@@ -271,14 +291,14 @@ async def test_timeout__await__cancel_on_failure() -> None:
     tasks.start(freeze())
     with pytest.raises(asyncio.TimeoutError):
         await tasks
-    assert not tasks.all_successful
+    assert not any(t.ok for t in tasks)
     await tasks.wait(safe=True)
-    assert tasks.any_cancelled
-    assert tasks.all_cancelled
-    assert len(tasks.exceptions) == 2
-    assert type(tasks.exceptions[0]) is asyncio.CancelledError
-    assert type(tasks.exceptions[1]) is asyncio.CancelledError
-    assert not tasks.all_successful
+    assert all(t.cancelled for t in tasks)
+    excs = list(tasks.exceptions)
+    assert len(excs) == 2
+    assert type(excs[0]) is asyncio.CancelledError
+    assert type(excs[1]) is asyncio.CancelledError
+    assert not any(t.ok for t in tasks)
     results = await tasks.list(failed=SKIP, cancelled=SKIP, pending=RAISE)
     assert results == []
 
@@ -293,13 +313,14 @@ async def test_wait__cancel_on_failure() -> None:
     with pytest.raises(ZeroDivisionError):
         await tasks.wait()
     await tasks.wait(safe=True)
-    assert tasks.any_cancelled
-    assert tasks.done_count == 4
-    assert tasks.cancelled_count == 3
+    assert any(t.cancelled for t in tasks)
+    assert sum(t.done for t in tasks) == 4
+    assert sum(t.cancelled for t in tasks) == 3
     with pytest.raises((asyncio.CancelledError, ZeroDivisionError)):
         await tasks.wait()
-    assert len(tasks.exceptions) == 4
-    assert not tasks.all_successful
+    excs = list(tasks.exceptions)
+    assert len(excs) == 4
+    assert not any(t.ok for t in tasks)
     results = await tasks.list(failed=SKIP, cancelled=SKIP, pending=RAISE)
     assert results == []
 
@@ -310,10 +331,11 @@ async def test_exceptions() -> None:
     tasks.start(fail())
     tasks.start(fail())
     await tasks.wait(safe=True)
-    assert len(tasks.exceptions) == 2
-    assert type(tasks.exceptions[0]) is ZeroDivisionError
-    assert type(tasks.exceptions[1]) is ZeroDivisionError
-    assert not tasks.all_successful
+    excs = list(tasks.exceptions)
+    assert len(excs) == 2
+    assert type(excs[0]) is ZeroDivisionError
+    assert type(excs[1]) is ZeroDivisionError
+    assert not any(t.ok for t in tasks)
 
 
 @pytest.mark.asyncio

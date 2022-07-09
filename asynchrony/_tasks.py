@@ -10,6 +10,7 @@ from typing import (
 )
 
 from ._constants import Behavior, RAISE, SKIP, AWAIT
+from ._task import Task
 
 T = TypeVar('T', covariant=True)
 if TYPE_CHECKING:
@@ -22,7 +23,6 @@ class Tasks(Generic[T]):
     """Manager for async tasks.
 
     Args:
-
         timeout: how long to await for tasks to finish.
         cancel_on_failure: if a task fails, cancel all other tasks.
             It includes cases when a task was cancelled or timed out.
@@ -45,92 +45,20 @@ class Tasks(Generic[T]):
     _awaited: bool = False
 
     @property
-    def all_done(self) -> bool:
-        """True if all the wrapped tasks are done.
-
-        "Done" also includes failed and cancelled tasks.
-        """
-        return all(task.done() for task in self._started)
-
-    @property
-    def any_done(self) -> bool:
-        """True if any of the wrapped tasks is done.
-
-        "Done" also includes failed and cancelled tasks.
-        """
-        return any(task.done() for task in self._started)
-
-    @property
-    def done_count(self) -> int:
-        """How many tasks are done.
-
-        "Done" also includes failed and cancelled tasks.
-        """
-        return sum(task.done() for task in self._started)
-
-    @property
-    def done_map(self) -> Iterator[bool]:
-        for task in self._started:
-            yield task.done()
-
-    @property
-    def all_cancelled(self) -> bool:
-        """True if all the wrapped tasks are cancelled.
-        """
-        return all(task.cancelled() for task in self._started)
-
-    @property
-    def any_cancelled(self) -> bool:
-        """True if any of the wrapped tasks is cancelled.
-        """
-        return any(task.cancelled() for task in self._started)
-
-    @property
-    def cancelled_count(self) -> int:
-        """How many wrapped tasks are cancelled.
-        """
-        return sum(task.cancelled() for task in self._started)
-
-    @property
-    def cancelled_map(self) -> Iterator[bool]:
-        for task in self._started:
-            yield task.cancelled()
-
-    @property
-    def all_successful(self) -> bool:
-        """True if none of the tasks were failed or cancelled.
-        """
-        return all(self.successful_map)
-
-    @property
-    def successful_map(self) -> Iterator[bool]:
-        for task in self._started:
-            if not task.done():
-                yield False
-            elif task.cancelled():
-                yield False
-            elif task.exception() is not None:
-                yield False
-            else:
-                yield True
-
-    @cached_property
-    def exceptions(self) -> tuple[BaseException, ...]:
+    def exceptions(self) -> Iterator[BaseException]:
         """All exceptions raised from tasks.
 
         It can be used only after the `Tasks` was awaited.
         """
         assert self._awaited, 'tasks must be awaited before you can get exceptions'
-        exceptions: list[BaseException] = []
         for task in self._started:
             try:
                 exc = task.exception()
             except asyncio.CancelledError as err:
-                exceptions.append(err)
+                yield err
             else:
                 if exc is not None:
-                    exceptions.append(exc)
-        return tuple(exceptions)
+                    yield exc
 
     @cached_property
     def _semaphore(self) -> asyncio.Semaphore:
@@ -456,3 +384,13 @@ class Tasks(Generic[T]):
 
     def __add__(self, other: Tasks[G]) -> Tasks[T | G]:
         return self.merge(other)
+
+    def __iter__(self) -> Iterator[Task[T]]:
+        for task in self._started:
+            yield Task(task)
+
+    def __getitem__(self, index: int) -> Task[T]:
+        return Task(self._started[index])
+
+    def __len__(self) -> int:
+        return len(self._started)

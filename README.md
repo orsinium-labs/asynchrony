@@ -26,9 +26,17 @@ async def download_page(url: str) -> bytes:
 
 urls = [...]
 tasks = Tasks[bytes](timeout=10, max_concurrency=100)
-for url in urls:
-    tasks.start(download_page(url))
-pages = await tasks
+tasks.map(urls, download_page)
+
+try:
+    pages = await tasks
+except Exception:
+    failed = sum(t.failed for t in tasks)
+    print(f'{failed} tasks failed')
+    cancelled = sum(t.cancelled for t in tasks)
+    print(f'{cancelled} tasks cancelled')
+else:
+    print(f'finished {len(tasks)} tasks')
 ```
 
 See [tutorial](./tutorial) for runnable usage examples.

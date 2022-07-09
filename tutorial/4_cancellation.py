@@ -56,9 +56,9 @@ async def main() -> None:
         # and rollback all finished ones.
         print(f'failed to send money: {exc}')
 
-        # `Tasks.done_count` is a number of tasks that have finished.
+        # Count finished tasks.
         # It includes successful tasks, failed tasks, and already cancelled tasks.
-        print(f'finished tasks: {tasks.done_count}')
+        print(f'finished tasks: {sum(t.done for t in tasks)}')
 
         # Since `cancel_on_failure` is True, cancellation for all remaining tasks
         # is already requested. But if you want to make it double sure,
@@ -73,7 +73,7 @@ async def main() -> None:
         await tasks.wait(safe=True)
 
         # Now, all tasks that haven't finished sending money should be cancelled:
-        print(f'cancelled tasks: {tasks.cancelled_count}')
+        print(f'cancelled tasks: {sum(t.cancelled for t in tasks)}')
 
         print('\nbefore rollback:')
         for e in employees:
@@ -81,10 +81,12 @@ async def main() -> None:
 
         print('\nrolling back...')
         rollback = Tasks[None](timeout=5)
-        # `Tasks.successful_map` will yield `True` for each successful task
-        # and `False` for each failed one in the order as they were started.
-        for e, success in zip(employees, tasks.successful_map):
-            if success:
+        # You can iterate over tasks. It will emit `Task` instances in the order
+        # as you called `Tasks.start` on each of them.
+        for e, task in zip(employees, tasks):
+            # `Task.ok` will be `True` for each successful task
+            # and `False` for each failed or cancelled one.
+            if task.ok:
                 print(f'  salary of {e.name} will be rolled back')
                 rollback.start(e.request_money(SALARY))
         await rollback
